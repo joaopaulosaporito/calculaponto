@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Controle de Ponto Pontomais</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2em;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: white;
+      padding: 2em;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    textarea {
+      width: 100%;
+      height: 180px;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-family: monospace;
+    }
+
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 0;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 1em;
+    }
+
+    th,
+    td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: center;
+    }
+
+    th {
+      background: #f8f9fa;
+      font-weight: bold;
+    }
+
+    .deficit {
+      color: #dc3545;
+      font-weight: bold;
+    }
+
+    .surplus {
+      color: #28a745;
+      font-weight: bold;
+    }
+
+    .warning {
+      color: #ffc107;
+      font-weight: bold;
+    }
+
+    .info {
+      margin: 1em 0;
+      padding: 1em;
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      border-radius: 4px;
+    }
+
+    .console-command {
+      background: #2d3748;
+      color: #ffffff;
+      padding: 1em;
+      border-radius: 4px;
+      font-family: monospace;
+      margin: 1em 0;
+      font-size: 12px;
+      overflow-x: auto;
+    }
+
+    .copy-btn {
+      background: #28a745;
+      font-size: 12px;
+      padding: 6px 12px;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>🕐 Controle de Ponto Pontomais</h1>
+
+    <div class="info">
+      <strong>📋 Como utilizar:</strong><br>
+      1. No Pontomais, clique com o botão direito na tabela e escolha "Inspecionar"<br>
+      2. Copie o HTML do <code>&lt;tbody role="presentation"&gt;</code> inteiro<br>
+      3. Cole abaixo e clique em "Processar"
+    </div>
+
+    <textarea id="input" placeholder="Cole aqui o HTML do tbody do Pontomais..."></textarea>
+    <br>
+    <button onclick="processarPontomais()">🔄 Processar Dados</button>
+    <button onclick="limpar()">🗑️ Limpar</button>
+    <div id="output"></div>
+
+    <div class="info">
+      <strong>⚖️ Informações CLT:</strong><br>
+      • Meta diária: 8h48min de trabalho + 1h almoço = 9h48min total<br>
+      • Horário de saída automático: Entrada + 9h48min<br>
+      • Exemplos: 07:00 → 16:48 | 08:00 → 17:48 | 09:00 → 18:48<br>
+      • Tolerância: até 10min de atraso/saída antecipada<br>
+      • Hora extra: 50% adicional (100% domingos/feriados)
+    </div>
+  </div>
+
+  <script>
+    function horarioParaMinutos(h) {
+      if (!h) return null;
+      let [hora, min] = h.split(':').map(Number);
+      return hora * 60 + min;
+    }
+
+    function minutosParaHorario(mins) {
+      if (mins == null) return '';
+      let h = Math.floor(Math.abs(mins) / 60);
+      let m = Math.abs(mins) % 60;
+      return (mins < 0 ? '-' : '') + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+    }
+
+    function limpar() {
+      document.getElementById('input').value = '';
+      document.getElementById('output').innerHTML = '';
+    }
+
+    function extrairDadosPontomais(html) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = html;
+
+      console.log('tempDiv:', tempDiv);
+
+      // Tentar estrutura de tabela primeiro
+      const tbody = tempDiv.querySelector('tbody[role="presentation"]');
+      if (tbody) {
+        console.log('Estrutura de tabela encontrada!');
+        const rows = tbody.querySelectorAll('tr[role="row"]');
+        const dados = [];
+
+        rows.forEach(row => {
+          const date = row.querySelector('td[aria-colindex="2"]')?.textContent?.trim() || '';
+          const hoursCell = row.querySelector('td[aria-colindex="4"] span[title]');
+          let horarios = [];
+
+          if (hoursCell) {
+            const t = hoursCell.getAttribute('title').trim();
+            if (t && t.match(/\d{2}:\d{2}/)) {
+              horarios = t.split('-').map(s => s.trim()).filter(s => /\d{2}:\d{2}/.test(s));
+            }
+          }
+
+          const overtime = row.querySelector('td[aria-colindex="5"] span')?.textContent?.trim() || '';
+          const missingHours = row.querySelector('td[aria-colindex="6"] span')?.textContent?.trim() || '';
+
+          if (date) {
+            dados.push({
+              date,
+              horarios,
+              overtime,
+              missingHours
+            });
+          }
+        });
+
+        console.log('Dados extraídos da tabela:', dados);
+        return dados;
+      }
+
+      // Fallback para estrutura achatada
+      console.log('Usando fallback para estrutura achatada...');
+      const dados = [];
+      const dateDivs = tempDiv.querySelectorAll('.date-text');
+      console.log('Found date divs:', dateDivs.length);
+
+      dateDivs.forEach((dateDiv, index) => {
+        const dateText = dateDiv.textContent.trim();
+        console.log(`Processing date ${index + 1}:`, dateText);
+
+        const allDivs = Array.from(tempDiv.querySelectorAll('div'));
+        const dateDivIndex = allDivs.indexOf(dateDiv);
+
+        let horarios = [];
+        let overtime = '';
+        let missingHours = '';
+
+        // Procurar nas próximas divs após a data
+        for (let i = dateDivIndex + 1; i < Math.min(dateDivIndex + 10, allDivs.length); i++) {
+          const div = allDivs[i];
+          const span = div.querySelector('span[title]');
+
+          if (span) {
+            const title = span.getAttribute('title');
+            if (title && title.match(/\d{2}:\d{2}/)) {
+              const timeEntries = title.split('-').map(s => s.trim()).filter(s => /\d{2}:\d{2}/.test(s));
+              if (timeEntries.length > 0) {
+                horarios = timeEntries;
+                console.log(`Found work hours for ${dateText}:`, horarios);
+                break;
+              }
+            }
+          }
+
+          const spanText = div.querySelector('span')?.textContent?.trim();
+          if (spanText === '00:00' && overtime === '') {
+            overtime = spanText;
+          } else if (spanText && spanText.match(/\d{2}:\d{2}/) && spanText !== '00:00' && missingHours === '') {
+            missingHours = spanText;
+          }
+        }
+
+        if (dateText) {
+          dados.push({
+            date: dateText,
+            horarios,
+            overtime: overtime || '00:00',
+            missingHours: missingHours || '00:00'
+          });
+        }
+      });
+
+      console.log('Extracted data:', dados);
+      return dados;
+    }
+
+    function processarPontomais() {
+      const input = document.getElementById('input').value.trim();
+
+      if (!input) {
+        alert('Por favor, cole o HTML do tbody do Pontomais!');
+        return;
+      }
+
+      const dados = extrairDadosPontomais(input);
+      console.log(dados);
+
+      if (dados.length === 0) {
+        document.getElementById('output').innerHTML = '<div class="info">❌ Nenhum dado válido encontrado. Verifique o HTML colado.</div>';
+        return;
+      }
+
+      const jornadaTrabalho = 8 * 60 + 48; // 8h48min de trabalho efetivo
+      const jornadaPadrao = 9 * 60 + 48; // 9h48min total (trabalho + almoço)
+      const tolerancia = 10;
+
+      let html = `<table>
+        <tr>
+          <th>Data</th><th>Horários</th><th>Trabalhado</th>
+          <th>Intervalo</th><th>Meta</th><th>Diferença</th><th>Observações</th>
+        </tr>`;
+      let totalTrabalhado = 0;
+      let totalDias = 0;
+      const hoje = new Date();
+
+      dados.forEach(item => {
+        // Data no formato "xxx - dd/MM" ou "dd/MM"
+        let dataStr = item.date.replace(/^[a-z]{3}\s*-\s*/i, '').trim();
+        let [dia, mes] = dataStr.split('/').map(Number);
+        let dataRegistro = new Date(hoje.getFullYear(), mes - 1, dia);
+        let ehHoje = dataRegistro.toDateString() === hoje.toDateString();
+        let trabalhado = null, intervalo = null, detalhes = '', status = '', diff = null, classe = '', observacoes = '';
+
+        if (!item.horarios || item.horarios.length === 0) {
+          status = 'Falta';
+          detalhes = 'Sem registro de ponto';
+        } else if (item.horarios.length === 1) {
+          if (ehHoje) {
+            detalhes = `${item.horarios[0]} (em andamento)`;
+            status = 'Em andamento';
+          } else {
+            detalhes = `${item.horarios[0]} (incompleto)`;
+            status = 'Incompleto';
+          }
+        } else if (item.horarios.length === 2) {
+          let entrada = horarioParaMinutos(item.horarios[0]);
+          let saida = horarioParaMinutos(item.horarios[1]);
+          trabalhado = saida - entrada;
+          detalhes = `${item.horarios[0]} às ${item.horarios[1]}`;
+          status = ehHoje ? 'Em andamento' : 'Incompleto';
+        } else if (item.horarios.length >= 4) {
+          let entrada = horarioParaMinutos(item.horarios[0]);
+          let saidaAlmoco = horarioParaMinutos(item.horarios[1]);
+          let voltaAlmoco = horarioParaMinutos(item.horarios[2]);
+          let saidaFinal = horarioParaMinutos(item.horarios[item.horarios.length - 1]);
+          let manha = saidaAlmoco - entrada;
+          let tarde = saidaFinal - voltaAlmoco;
+          trabalhado = manha + tarde;
+          intervalo = voltaAlmoco - saidaAlmoco;
+          if (item.horarios.length === 4) {
+            detalhes = `${item.horarios[0]}-${item.horarios[1]} | ${item.horarios[2]}-${item.horarios[3]}`;
+          } else {
+            detalhes = item.horarios.join(' - ');
+            status = 'Múltiplos registros';
+          }
+        } else if (item.horarios.length > 0) {
+          detalhes = item.horarios.join(' - ') + ' (incompleto)';
+          status = 'Incompleto';
+        }
+
+        if (trabalhado != null) {
+          diff = trabalhado - jornadaTrabalho; // Comparar com 8h48min de trabalho efetivo
+        }
+
+        // Calcular horário de saída ideal baseado na entrada
+        let horarioSaidaIdeal = '';
+        if (item.horarios.length > 0 && item.horarios[0]) {
+          let entrada = horarioParaMinutos(item.horarios[0]);
+          let saidaIdeal = entrada + jornadaPadrao; // Entrada + 9h48min
+          horarioSaidaIdeal = minutosParaHorario(saidaIdeal);
+        }
+
+        // Observações e classes
+        if (status === 'Falta') {
+          observacoes = '❌ Falta';
+          classe = 'deficit';
+        } else if (status === 'Em andamento') {
+          if (horarioSaidaIdeal) {
+            observacoes = `🔄 Em andamento (sair às ${horarioSaidaIdeal})`;
+          } else {
+            observacoes = '🔄 Em andamento';
+          }
+          classe = 'warning';
+        } else if (status === 'Múltiplos registros') {
+          observacoes = '⚠️ Múltiplos registros';
+          classe = 'warning';
+          if (trabalhado != null) {
+            totalTrabalhado += trabalhado;
+            totalDias++;
+          }
+        } else if (diff != null) {
+          totalTrabalhado += trabalhado;
+          totalDias++;
+          if (Math.abs(diff) <= tolerancia) {
+            classe = '';
+            observacoes = '✅ OK';
+          } else if (diff < 0) {
+            classe = 'deficit';
+            let faltam = Math.abs(diff);
+            if (item.horarios.length >= 2) {
+              let ultimoHorario = item.horarios[item.horarios.length - 1];
+              let novoHorario = horarioParaMinutos(ultimoHorario) + faltam;
+              observacoes = `⏰ Sair às ${minutosParaHorario(novoHorario)} (faltam ${minutosParaHorario(faltam)})`;
+            } else if (horarioSaidaIdeal) {
+              observacoes = `⏰ Sair às ${horarioSaidaIdeal} (faltam ${minutosParaHorario(faltam)})`;
+            } else {
+              observacoes = `⏰ Faltam ${minutosParaHorario(faltam)}`;
+            }
+          } else {
+            classe = 'surplus';
+            observacoes = `💰 +${minutosParaHorario(diff)} (Hora extra)`;
+          }
+          if (intervalo != null && intervalo < 60) {
+            observacoes += ' | ⚠️ Intervalo < 1h';
+            classe = 'warning';
+          }
+        } else if (status === 'Incompleto') {
+          if (horarioSaidaIdeal) {
+            observacoes = `❓ Dados incompletos (sair às ${horarioSaidaIdeal})`;
+          } else {
+            observacoes = '❓ Sem dados';
+          }
+        }
+
+        html += `<tr>
+          <td>${item.date}</td>
+          <td>${detalhes}</td>
+          <td>${trabalhado != null ? minutosParaHorario(trabalhado) : ''}</td>
+          <td>${intervalo != null ? minutosParaHorario(intervalo) : ''}</td>
+          <td>08:48</td>
+          <td class="${classe}">${diff != null ? minutosParaHorario(diff) : ''}</td>
+          <td class="${classe}">${observacoes}</td>
+        </tr>`;
+      });
+
+      // Totais
+      if (totalDias > 0) {
+        let mediaDiaria = totalTrabalhado / totalDias;
+        let metaSemanal = jornadaTrabalho * totalDias; // Meta baseada em 8h48min por dia
+        let diffSemanal = totalTrabalhado - metaSemanal;
+        html += `<tr style="background: #e9ecef; font-weight: bold;">
+          <td colspan="2">📊 TOTAIS (${totalDias} dias)</td>
+          <td>${minutosParaHorario(totalTrabalhado)}</td>
+          <td>-</td>
+          <td>${minutosParaHorario(metaSemanal)}</td>
+          <td class="${diffSemanal < 0 ? 'deficit' : 'surplus'}">${minutosParaHorario(diffSemanal)}</td>
+          <td>Média: ${minutosParaHorario(mediaDiaria)}/dia</td>
+        </tr>`;
+      }
+
+      html += '</table>';
+      document.getElementById('output').innerHTML = html;
+    }
+  </script>
+</body>
+
+</html>
